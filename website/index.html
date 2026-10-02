@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spatio-Temporal Earthquake Risk Portal</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+
+<div id="sidebar">
+  <h2>Point Process Risk Portal</h2>
+
+  <div class="control-group">
+    <label class="section-title" for="data-mode-select">Data Fetching Mode</label>
+    <select id="data-mode-select">
+      <option value="historical" selected>Custom Historical API Query</option>
+      <option value="realtime">Real-time Summary Feeds (Recent)</option>
+    </select>
+  </div>
+
+  <div id="realtime-controls" class="control-group" style="display: none;">
+    <label class="section-title" for="feed-select">Summary Feed</label>
+    <select id="feed-select">
+      <option value="all_month">Past 30 Days (All Quakes)</option>
+      <option value="4.5_month">Past 30 Days (M4.5+)</option>
+      <option value="all_week">Past 7 Days (All Quakes)</option>
+      <option value="2.5_week">Past 7 Days (M2.5+)</option>
+    </select>
+  </div>
+
+  <div id="historical-controls" class="control-group">
+    <label class="section-title">Historical API Query Range</label>
+    <div class="grid-2col">
+      <div><span class="hint">Start Date</span><input type="date" id="hist-start" value="2024-01-01"></div>
+      <div><span class="hint">End Date</span><input type="date" id="hist-end" value="2026-01-01"></div>
+    </div>
+    <div style="margin-top: 2px;">
+      <span class="hint">Min Magnitude (M5.0+ recommended)</span>
+      <input type="number" id="hist-min-mag" value="5.0" step="0.5" min="0" max="10">
+    </div>
+    <button id="fetch-hist-btn" class="btn-primary">Query USGS Database</button>
+  </div>
+
+  <div id="status-msg" class="status-msg" role="status" aria-live="polite"></div>
+
+  <div class="control-group">
+    <div class="label-val"><span>Observation Window (T<sub>window</sub>)</span><span id="window-val">60 Days</span></div>
+    <input type="range" id="window-slider" min="1" max="180" value="60" step="1">
+  </div>
+
+  <div class="control-group">
+    <label class="section-title">Score-based CUSUM Detector</label>
+    <span class="hint">Score models (denoising score matching) are fitted on the baseline period; the detector then runs online over the whole catalog. Changing the first three controls refits (a few seconds on large catalogs).</span>
+
+    <div class="label-val"><span>Baseline (training) period</span><span id="baseline-val">40 %</span></div>
+    <input type="range" id="baseline-slider" min="10" max="80" value="40" step="5">
+
+    <div class="label-val"><span>Score neighbourhood radius</span><span id="score-radius-val">5.0&deg;</span></div>
+    <input type="range" id="score-radius-slider" min="1" max="20" value="5" step="0.5">
+
+    <div class="label-val"><span>Zone radius (change region)</span><span id="zone-radius-val">2.5&deg;</span></div>
+    <input type="range" id="zone-radius-slider" min="0.5" max="10" value="2.5" step="0.5">
+
+    <div class="label-val"><span>Threshold h</span><span id="h-val">2.50 &times; baseline max</span></div>
+    <input type="range" id="h-slider" min="0.5" max="5" value="2.5" step="0.05">
+  </div>
+
+  <div class="control-group">
+    <label class="section-title">Kernels</label>
+    <div class="label-val"><span>Event kernel bandwidth</span><span id="event-bw-val">80 km</span></div>
+    <input type="range" id="event-bw-slider" min="10" max="500" value="80" step="5">
+    <div class="label-val"><span>Event kernel weight</span></div>
+    <select id="event-weight-select">
+      <option value="count" selected>Count (each event = 1)</option>
+      <option value="energy">Magnitude (~log energy)</option>
+    </select>
+    <div class="label-val"><span>Anomaly-zone kernel bandwidth</span><span id="zone-bw-val">150 km</span></div>
+    <input type="range" id="zone-bw-slider" min="20" max="800" value="150" step="10">
+  </div>
+
+  <div class="control-group">
+    <label class="section-title">Map Layers &amp; Overlays</label>
+    <label class="checkbox-group"><input type="checkbox" id="toggle-quakes" checked><span>Individual Earthquake Markers</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="toggle-event-heatmap" checked><span>Event Kernel Density</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="toggle-cusum-heatmap" checked><span>Anomaly Zone (kernel-smoothed)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="toggle-anomalies" checked><span>Anomaly Zone Boundary (contour)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="toggle-tectonic" checked><span>Tectonic Plate Boundaries</span></label>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stats-card"><div class="stats-title">Active Window Events</div><div class="stats-value" id="stat-active-events">0</div></div>
+    <div class="stats-card alert"><div class="stats-title">Anomaly Zones</div><div class="stats-value" id="stat-anomalies">0</div></div>
+    <div class="stats-card"><div class="stats-title">CUSUM S / h</div><div class="stats-value" id="stat-cusum">&ndash;</div></div>
+    <div class="stats-card"><div class="stats-title">Change point &tau;</div><div class="stats-value" id="stat-tau">&ndash;</div></div>
+  </div>
+
+  <div class="legend">
+    <div style="font-weight: bold; color: #f1f5f9; margin-bottom: 2px;">Map Layer Legend</div>
+    <div style="font-size: .68rem; margin-top: 4px; color: #cbd5e1;">Event Kernel Density:</div>
+    <div class="legend-gradient-events"></div>
+    <div class="legend-labels"><span>Low density</span><span>High density</span></div>
+    <div style="font-size: .68rem; margin-top: 6px; color: #cbd5e1;">Anomaly Zone (smoothed measure):</div>
+    <div class="legend-gradient-cusum"></div>
+    <div class="legend-labels"><span>Weak</span><span>Strong</span></div>
+    <div class="legend-item" style="margin-top: 6px;"><span class="legend-color" style="background: rgba(220,38,38,.2); border: 2px dashed #dc2626;"></span><span>Zone boundary (30 % of smoothed peak)</span></div>
+    <div class="legend-item"><span class="legend-color" style="background: #0284c7;"></span><span>Earthquake Marker</span></div>
+    <div class="legend-item"><span class="legend-color" style="background: #d97706; height: 3px; border-radius: 0;"></span><span>Tectonic Boundary Line</span></div>
+  </div>
+</div>
+
+<div id="map-container">
+  <div id="playbar">
+    <button id="play-pause-btn" class="playbar-btn"><span id="play-btn-icon">▶</span><span id="play-btn-text">Play</span></button>
+    <button id="step-prev-btn" class="playbar-btn secondary" title="Step Backward">⏮</button>
+    <button id="step-next-btn" class="playbar-btn secondary" title="Step Forward">⏭</button>
+    <div class="timeline-slider-container"><input type="range" id="time-slider" min="0" max="1000" value="1000"></div>
+    <select id="speed-select" class="speed-select">
+      <option value="0.5">0.5x Speed</option>
+      <option value="1" selected>1x Speed</option>
+      <option value="2">2x Speed</option>
+      <option value="5">5x Speed</option>
+      <option value="10">10x Speed</option>
+    </select>
+    <div class="playbar-time-info" id="time-display-text"><span>Start: --</span><span>End: --</span></div>
+  </div>
+  <div id="map"></div>
+  <div id="timeline" title="Scroll, drag or click to move through time">
+    <canvas id="timeline-canvas"></canvas>
+    <div id="timeline-hint">Scroll here to scrub time &middot; Shift+scroll over the map &middot; &larr; / &rarr; keys (Shift = faster) &middot; Space = play/pause</div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

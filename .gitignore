@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ipynb_checkpoints/
+node_modules/
+website/.env*.local
+.DS_Store
+
+# generated analysis outputs (keep the folder)
+data/outputs/*
+!data/outputs/.gitkeep

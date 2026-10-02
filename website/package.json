@@ -1,0 +1,13 @@
+{
+  "name": "cusum-portal",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Static earthquake CUSUM risk portal (no runtime dependencies)",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/build.mjs --check"
+  }
+}
