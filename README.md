@@ -1,4 +1,4 @@
-# CUSUM Platform
+# Platform for Score-Based Change-Point Detection and Region Localization
 
 A spatio-temporal **CUSUM** (cumulative sum) earthquake-anomaly platform: a Python engine that pulls live or
 historical USGS data and flags swarm-like energy spikes per grid cell, plus an interactive map portal that runs
