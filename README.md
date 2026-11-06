@@ -28,7 +28,7 @@ The detector needs PyTorch, so it runs in Python (`services/change_detection`); 
 pip install -r requirements.txt                       # CPU PyTorch is enough
 python -m services.change_detection --as-of 2025-12-31   # all four regions -> data/outputs/
 cp data/outputs/*.json docs/data/                        # publish (mkdir -p docs/data first)
-python scripts/serve_site.py                             # http://127.0.0.1:8780/
+python scripts/serve_site.py                             # http://127.0.0.1:8770/
 ```
 
 Single region: `--region california`. No network: `--region synthetic` (the lab's simulator). Japan from a file you downloaded:

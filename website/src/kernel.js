@@ -136,3 +136,47 @@ export function densityToRGBA(values, { ramp, bandwidthKm, kernel, saturation, o
   }
   return rgba;
 }
+
+/**
+ * Marching squares on a density grid. Grid values sit at cell centres; returns segments [x0, y0, x1, y1] in
+ * fractional grid coordinates (x right, y down, cell centres at integers), using linear interpolation.
+ */
+export function contourSegments(values, nx, ny, level) {
+  const out = [];
+  const v = (i, j) => values[j * nx + i];
+  const lerp = (a, b) => (a === b ? 0.5 : (level - a) / (b - a));
+  for (let j = 0; j < ny - 1; j++) {
+    for (let i = 0; i < nx - 1; i++) {
+      const tl = v(i, j), tr = v(i + 1, j), br = v(i + 1, j + 1), bl = v(i, j + 1);
+      const code = (tl >= level ? 8 : 0) | (tr >= level ? 4 : 0) | (br >= level ? 2 : 0) | (bl >= level ? 1 : 0);
+      if (code === 0 || code === 15) continue;
+      const top = [i + lerp(tl, tr), j], right = [i + 1, j + lerp(tr, br)];
+      const bottom = [i + lerp(bl, br), j + 1], left = [i, j + lerp(tl, bl)];
+      const seg = (a, b) => out.push([a[0], a[1], b[0], b[1]]);
+      switch (code) {
+        case 1: case 14: seg(left, bottom); break;
+        case 2: case 13: seg(bottom, right); break;
+        case 3: case 12: seg(left, right); break;
+        case 4: case 11: seg(top, right); break;
+        case 6: case 9: seg(top, bottom); break;
+        case 7: case 8: seg(top, left); break;
+        case 5: case 10: {
+          const centreHigh = (tl + tr + br + bl) / 4 >= level;
+          const joined = (code === 5) === centreHigh;      // high corners connected through the centre
+          if (joined) { seg(top, left); seg(bottom, right); } else { seg(top, right); seg(left, bottom); }
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** Fractional grid coordinates (cell centres at integers) -> [lat, lon] for a grid made by kernelDensityGrid. */
+export function gridToLatLng(bounds, nx, ny, x, y) {
+  const yN = mercY(bounds.north), yS = mercY(bounds.south);
+  return [invMercY(yN - ((y + 0.5) * (yN - yS)) / ny), bounds.west + (x + 0.5) * ((bounds.east - bounds.west) / nx)];
+}
+
+/** Contour levels as fractions of the colour-scale maximum (peakDensity * saturation). */
+export const CONTOUR_FRACTIONS = [0.12, 0.3, 0.55, 0.85];

@@ -92,3 +92,20 @@ test("unknown kernel and bad bandwidth are rejected", () => {
   assert.throws(() => kernelDensityGrid({ points: [], bounds: view, nx: 20, ny: 20, bandwidthKm: 10, kernel: "nope" }), /Unknown kernel/);
   assert.throws(() => kernelDensityGrid({ points: [], bounds: view, nx: 20, ny: 20, bandwidthKm: 0, kernel: "gaussian" }), /positive/);
 });
+
+import { contourSegments, gridToLatLng, kernelDensityGrid as kdg, peakDensity as pk } from "../src/kernel.js";
+test("contour of a single Gaussian blob at half the peak is a ring of radius h*sqrt(2 ln 2)", () => {
+  const bounds = { west: -2, east: 2, south: -2, north: 2 }, nx = 160, ny = 160, h = 50;
+  const values = kdg({ points: [{ lon: 0, lat: 0, w: 1 }], bounds, nx, ny, bandwidthKm: h, kernel: "gaussian" });
+  const segs = contourSegments(values, nx, ny, pk("gaussian", h) / 2);
+  assert.ok(segs.length > 40);
+  const want = h * Math.sqrt(2 * Math.log(2));
+  for (const [x0, y0, x1, y1] of segs) {
+    for (const [x, y] of [[x0, y0], [x1, y1]]) {
+      const [lat, lon] = gridToLatLng(bounds, nx, ny, x, y);
+      const km = Math.hypot(lon * 111.32, lat * 111.19);
+      assert.ok(Math.abs(km - want) < 2.5, `radius ${km.toFixed(1)} vs ${want.toFixed(1)}`);
+    }
+  }
+  assert.equal(contourSegments(values, nx, ny, pk("gaussian", h) * 2).length, 0, "no contour above the peak");
+});

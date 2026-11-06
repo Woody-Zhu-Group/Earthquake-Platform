@@ -11,7 +11,7 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8770)
+    ap.add_argument("--port", type=int, default=8780)
     args = ap.parse_args()
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(DOCS))
     with http.server.ThreadingHTTPServer(("127.0.0.1", args.port), handler) as srv:

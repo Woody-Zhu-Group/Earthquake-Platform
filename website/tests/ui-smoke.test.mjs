@@ -28,7 +28,7 @@ function fakeEl(tag = "div") {
   return el;
 }
 const byId = {};
-const sliderDefaults = { "window-slider": "30", "ev-bw": "50", "ev-sat": "3", "zn-bw": "100", "zn-sat": "2", "speed": "1", "time-slider": "10000", "ev-weight": "count", "ev-kernel": "gaussian", "zn-kernel": "gaussian" };
+const sliderDefaults = { "window-slider": "30", "ev-bw": "50", "ev-sat": "3", "zn-bw": "100", "zn-sat": "2", "speed": "1", "time-slider": "10000", "ev-weight": "count", "zone-style": "both", "ev-kernel": "gaussian", "zn-kernel": "gaussian" };
 globalThis.document = {
   getElementById: (id) => (byId[id] ||= Object.assign(fakeEl(), { value: sliderDefaults[id] ?? "", checked: ["show-events", "show-zones", "show-markers"].includes(id) })),
   createElement: (tag) => fakeEl(tag),
@@ -42,7 +42,7 @@ globalThis.cancelAnimationFrame = () => {};
 const flush = (now = 1000) => { const q = rafQueue; rafQueue = []; q.forEach((f) => f(now)); };
 
 // ---- fake Leaflet -----------------------------------------------------------------
-const calls = { imageOverlay: 0, circleMarker: 0, setUrl: 0, removeLayer: 0, rectangle: 0, fitBounds: [] };
+const calls = { polyline: 0, imageOverlay: 0, circleMarker: 0, setUrl: 0, removeLayer: 0, rectangle: 0, fitBounds: [] };
 const rectHandlers = {};
 const layer = () => { const l = { addTo() { return l; }, bindPopup() { return l; }, bindTooltip() { return l; }, setStyle() { return l; }, on() { return l; },
                                  clearLayers() {}, setUrl() { calls.setUrl++; }, setBounds() {} }; return l; };
@@ -51,6 +51,7 @@ globalThis.L = {
                 getBounds: () => ({ pad: () => ({ getWest: () => -180, getEast: () => 180, getSouth: () => -60, getNorth: () => 78 }) }) }),
   control: { zoom: () => layer() }, tileLayer: () => layer(), layerGroup: () => layer(), geoJSON: () => layer(),
   rectangle: () => { calls.rectangle++; const l = layer(); l.on = (type, fn) => { (rectHandlers[calls.rectangle] ||= {})[type] = fn; return l; }; return l; },
+  polyline: () => { calls.polyline++; return layer(); },
   circleMarker: () => { calls.circleMarker++; return layer(); },
   imageOverlay: () => { calls.imageOverlay++; return layer(); },
 };
@@ -200,6 +201,7 @@ test("playback advances the cursor with real frame timing and stops at the end",
 test("changing a kernel, bandwidth or layer toggle re-renders without error", () => {
   const before = calls.imageOverlay + calls.setUrl;
   byId["ev-kernel"].value = "epanechnikov"; byId["ev-kernel"].handlers.change.forEach((h) => h.fn()); flush();
+  byId["zone-style"].value = "contours"; byId["zone-style"].handlers.change.forEach((h) => h.fn()); flush();
   byId["zn-bw"].value = "250"; byId["zn-bw"].handlers.input.forEach((h) => h.fn()); flush();
   byId["show-baseline"].checked = true; byId["show-baseline"].handlers.change.forEach((h) => h.fn()); flush();
   byId["show-zones"].checked = false; byId["show-zones"].handlers.change.forEach((h) => h.fn()); flush();
@@ -231,4 +233,13 @@ test("the selected region shows the detector state at the cursor: empty at the s
   key("End");
   assert.ok(region() > 10, `region omega at the end: ${region()}`);
   assert.doesNotMatch(info(), /CUSUM<\/b> 0 /);
+});
+
+test("the anomaly zone is drawn as contour lines when a region with detector output is shown", () => {
+  byId["zone-style"].value = "both"; byId["zone-style"].handlers.change.forEach((h) => h.fn());
+  byId["zn-bw"].value = "100"; byId["zn-bw"].handlers.input.forEach((h) => h.fn());
+  byId["show-zones"].checked = true; byId["show-zones"].handlers.change.forEach((h) => h.fn());
+  const before = calls.polyline;
+  key("End");
+  assert.ok(calls.polyline > before, `contour polylines drawn: ${calls.polyline - before}`);
 });

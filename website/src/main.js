@@ -28,7 +28,7 @@ function settings() {
     eventWeight: $("ev-weight").value,
     showEvents: $("show-events").checked, showZones: $("show-zones").checked, showBaseline: $("show-baseline").checked,
     showMarkers: $("show-markers").checked, showZonePoints: $("show-zonepts").checked,
-    minMag: Number($("min-mag").value),
+    minMag: Number($("min-mag").value), zoneStyle: $("zone-style").value,
   };
 }
 
@@ -178,7 +178,7 @@ function bindControls() {
   label("zn-sat", "zn-sat-val", (v) => v);
   label("min-mag", "min-mag-val", (v) => `M ≥ ${Number(v).toFixed(1)}`);
   for (const id of ["window-slider", "ev-kernel", "ev-bw", "ev-sat", "ev-weight", "zn-kernel", "zn-bw", "zn-sat",
-    "min-mag", "show-events", "show-zones", "show-baseline", "show-markers", "show-zonepts"]) {
+    "min-mag", "zone-style", "show-events", "show-zones", "show-baseline", "show-markers", "show-zonepts"]) {
     $(id).addEventListener("input", scheduleRender);
     $(id).addEventListener("change", scheduleRender);
   }

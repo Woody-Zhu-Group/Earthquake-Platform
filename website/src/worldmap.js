@@ -1,6 +1,6 @@
 // The single world map: global events everywhere, detector regions as clickable boxes, and (for regions with
 // results) the CUSUM anomaly zones. Clicking a region zooms in and shows that region's detector state.
-import { chooseGrid, densityToRGBA, kernelDensityGrid } from "./kernel.js";
+import { CONTOUR_FRACTIONS, chooseGrid, contourSegments, densityToRGBA, gridToLatLng, kernelDensityGrid, peakDensity, rampColor } from "./kernel.js";
 import { clamp, histogram, timeToX, xToTime } from "./timeline.js";
 import { DAY_MS, escapeHtml, fmtDate, fmtDateTime } from "./util.js";
 
@@ -18,7 +18,7 @@ export class WorldMap {
     this.onSelect = onSelect;
     this.selected = null;
     this.rects = new Map();
-    this.overlays = {}; this.canvases = {};
+    this.overlays = {}; this.canvases = {}; this.grids = {};
     this.lastCursor = null; this.lastCtx = null;
     this.tectonicLayer = tectonic ? this._plates(tectonic) : null;
 
@@ -29,6 +29,7 @@ export class WorldMap {
     this.showWorld();
     this.markers = L.layerGroup().addTo(this.map);
     this.zonePts = L.layerGroup().addTo(this.map);
+    this.contours = L.layerGroup().addTo(this.map);
 
     for (const r of regions) {
       const [w, s, e, n] = r.bbox;
@@ -90,17 +91,23 @@ export class WorldMap {
              south: Math.max(-80, b.getSouth()), north: Math.min(80, b.getNorth()) };
   }
 
-  _overlay(key, points, k, ramp, bounds, zIndex) {
+  _overlay(key, points, k, ramp, bounds, zIndex, { fill = true, opacity = 0.75 } = {}) {
     const existing = this.overlays[key];
+    delete this.grids[key];
     if (!points.length || bounds.east <= bounds.west || bounds.north <= bounds.south) {
       if (existing) { this.map.removeLayer(existing); delete this.overlays[key]; }
       return null;
     }
     const g = chooseGrid(bounds, k.bwKm, k.kernel);
     const values = kernelDensityGrid({ points, bounds, nx: g.nx, ny: g.ny, bandwidthKm: g.bandwidthKm, kernel: k.kernel });
+    this.grids[key] = { values, g, bounds };
+    if (!fill) {
+      if (existing) { this.map.removeLayer(existing); delete this.overlays[key]; }
+      return g.bandwidthKm;
+    }
     const canvas = (this.canvases[key] ||= document.createElement("canvas"));
     canvas.width = g.nx; canvas.height = g.ny;
-    canvas.getContext("2d").putImageData(new ImageData(densityToRGBA(values, { ramp, bandwidthKm: g.bandwidthKm, kernel: k.kernel, saturation: k.sat }), g.nx, g.ny), 0, 0);
+    canvas.getContext("2d").putImageData(new ImageData(densityToRGBA(values, { ramp, bandwidthKm: g.bandwidthKm, kernel: k.kernel, saturation: k.sat, opacity }), g.nx, g.ny), 0, 0);
     const url = canvas.toDataURL();
     const lb = [[bounds.south, bounds.west], [bounds.north, bounds.east]];
     if (existing) { existing.setUrl(url); existing.setBounds(lb); }
@@ -127,7 +134,11 @@ export class WorldMap {
     const evPts = events.map((e) => ({ lon: e.lon, lat: e.lat, w: S.eventWeight === "magnitude" ? Math.max(e.mag, 0) / 5 : 1 }));
     const bwEv = this._overlay("events", S.showEvents ? evPts : [], S.events, "events", bounds, 210);
     const zonePts = states.flatMap((x) => x.st.zone);
-    const bwZone = this._overlay("zones", S.showZones ? zonePts : [], S.zones, "zones", bounds, 220);
+    const style = S.zoneStyle || "both";                       // "both" | "contours" | "fill"
+    const bwZone = this._overlay("zones", S.showZones ? zonePts : [], S.zones, "zones", bounds, 220,
+      { fill: style !== "contours", opacity: style === "both" ? 0.4 : 0.75 });
+    this.contours.clearLayers();
+    if (S.showZones && style !== "fill") this._drawContours(S.zones);
     const base = S.showBaseline ? states.flatMap((x) => x.res.baselinePoints(S.windowMs)) : [];
     this._overlay("baseline", base, S.events, "baseline", bounds, 200);
 
@@ -145,6 +156,20 @@ export class WorldMap {
 
     this._info(now, range, events, states, results, [bwEv && `events h≈${Math.round(bwEv)} km`, bwZone && `zones h≈${Math.round(bwZone)} km`].filter(Boolean));
     this.drawStrip(cursorMs, ctx, states);
+  }
+
+  /** Contour lines of the anomaly-zone density at fixed fractions of the colour scale (same scale as the fill). */
+  _drawContours(k) {
+    const z = this.grids.zones;
+    if (!z) return;
+    const full = peakDensity(k.kernel, z.g.bandwidthKm) * k.sat;
+    CONTOUR_FRACTIONS.forEach((f, n) => {
+      const segs = contourSegments(z.values, z.g.nx, z.g.ny, full * f)
+        .map(([x0, y0, x1, y1]) => [gridToLatLng(z.bounds, z.g.nx, z.g.ny, x0, y0), gridToLatLng(z.bounds, z.g.nx, z.g.ny, x1, y1)]);
+      if (!segs.length) return;
+      const [r, g, b] = rampColor("zones", Math.min(1, f + 0.15));
+      L.polyline(segs, { color: `rgb(${r},${g},${b})`, weight: 1.5 + n * 0.6, opacity: 0.95, interactive: false, lineCap: "round" }).addTo(this.contours);
+    });
   }
 
   _info(now, range, events, states, results, bw) {
