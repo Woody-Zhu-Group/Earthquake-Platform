@@ -1,68 +1,57 @@
 # Website
 
-Static Leaflet portal. No build toolchain or runtime dependencies; Node is only used for tests and for
-copying the site into `docs/`.
+Static Leaflet portal: one world map; the detector regions are clickable boxes that zoom in. No build toolchain or runtime dependencies; Node is only
+used for tests and for copying the site into `docs/`.
 
 ```
-index.html         page shell
-src/score.js       score model (port of score.py): DSM fit, localisation, weighted Hyvarinen psi; pure
-src/detect.js      detector (port of detect.py): inner/outer CUSUM, offline + online; pure
-src/kernels.js     Gaussian kernel grids, marching-squares contours, region count; pure
-src/kernel-layer.js  Leaflet canvas layer drawing a kernel surface (+ contour)
-src/timeline.js    timeline strip, wheel/drag scrubbing helpers
-src/cusum.js       legacy energy CUSUM (port of services/cusum_engine/engine.py; parity-tested, not used by the page)
-src/api.js         USGS summary-feed and FDSN clients
-src/main.js        map, controls, playback
-src/styles.css
-tests/             node:test suites, including parity against the Python engine
-scripts/build.mjs  copies index.html + src/ into ../docs
+index.html          page shell and sidebar controls
+src/main.js         wiring: time cursor, playback, wheel/keyboard scrolling, file loading
+src/worldmap.js     the world map: region boxes, kernel overlays, chips, scrubbable timeline strip
+src/events.js       global event pool (region events + live events outside the regions), magnitude filter
+src/kernel.js       kernel density smoothing (Gaussian / Epanechnikov / quartic / uniform) + colour scale
+src/timeline.js     time-axis maths (histogram, wheel -> time, clamping)
+src/results.js      loader/validator for detector result files and per-time queries
+src/api.js          region config, result files, live USGS fallback
+tests/              node:test suites, including a UI smoke test run under a fake DOM
+scripts/build.mjs   copies index.html, src/ and shared/regions.json into ../docs
 ```
 
 ```bash
 cd website
-npm test            # unit tests + parity with Python (tests/fixtures/expected_cusum.json)
+npm test            # kernel/time/results unit tests + UI smoke test
 npm run build       # refresh ../docs
 npm run check       # fail if ../docs is stale (used by CI)
 ```
 
-Preview from the repository root with `python scripts/serve_site.py` and open <http://127.0.0.1:8770/>.
-The page uses ES modules, so opening `index.html` by double-click (`file://`) does not work.
+Preview from the repository root: `python scripts/serve_site.py`, then open <http://127.0.0.1:8770/>. The page uses ES
+modules, so double-clicking `index.html` (`file://`) does not work.
 
-Time steps offered in the UI divide 24 h so that its bins line up with pandas' day-anchored bins; the
-Python CLI accepts any pandas offset.
+## Data
 
-## Score-based CUSUM in the browser
+On start the page reads `./regions.json` (the four regions), then `./data/index.json` and the result files it lists.
+Worldwide events come live from USGS (M4.5+, chunked); inside regions that have a result file, that file's events are used instead. A region without a result file is still clickable but shows a notice.
+Result files can also be loaded by hand with the file picker.
 
-`main.js` normalises events to the unit square (one isotropic scale) with the baseline period mapped to time [0, 1],
-fits `f0` on the baseline, then runs `SpatioTemporalDetector.online` over the whole catalog **once per load or
-parameter change** (a few seconds on a large catalog, on the main thread). Scrubbing only looks up the stored state
-(tau, S) for the current time, so it stays smooth.
+To try the interface without running PyTorch, load `tests/fixtures/standin_california.json` with the file picker.
+It is produced by a stand-in scorer and is labelled as such on screen; it is not output of the score-matching model.
 
-Differences from `score.py` / `detect.py` (all on purpose):
+## Time navigation
 
-- **No LSTM branch.** `score.py` documents the model as marginal ("no history dependence") and fed shuffled
-  mini-batch rows to the LSTM as if they were a sequence. The port is `base + W2 silu(W1 x + b1) + b2` with the same
-  zero-initialised output layer. Gradients and the divergence in `psi` are closed form (checked against finite differences).
-- **Base rate on short batches.** `online()` refits `f1` on a batch covering a fraction of the time axis but computes
-  `base` as if it covered one unit. The port divides by the batch duration (`timeSpan`), otherwise `f1` is far too slow
-  and the statistic fires before the change.
-- **Threshold.** `calibrate()` needs pre-change calibration sets and an ARL; the portal has one catalog, so
-  h = multiplier x the largest statistic reached during the baseline period (slider).
-- Event-based inner optimisation is the default (as in the demo notebook); the grid variant is ported and tested too.
-
-Checked against the original code (`tests/fixtures/expected_score.json`, generated by NumPy/SciPy): `localize`
-(incl. duplicate coordinates and the no-neighbour fallback), the KDE base rate, `inner_event`, `inner_grid`, `outer`.
+All panels share one time cursor. Move it by scrolling on any timeline strip, dragging a strip, dragging the top slider,
+the step buttons, or the keyboard (`←`/`→`, `Shift` = 10x, `Home`/`End`, `Space`). `Shift`+wheel over a map scrolls time;
+a checkbox makes the plain wheel over maps do so too (otherwise it zooms). On a strip, `Shift` scrolls 5x faster and `Alt`
+5x slower. The strip shows events per period (blue), the CUSUM statistic (magenta), the observation window (shaded),
+the current change-point estimate tau (dashed orange) and the cursor (white).
 
 ## Kernels
 
-- **Event kernel**: Gaussian kernel density of the events in the observation window (weight = count, or ~log energy).
-- **Anomaly-zone kernel**: Gaussian smoothing of the anomaly measure of the events in the estimated change region
-  [tau, t); contour at 30 % of the peak (`ZONE_CONTOUR_LEVEL` in `main.js`). Dimmed and without contour while S <= h.
+Two separate kernel layers, each with its own kernel shape, bandwidth h (km) and saturation:
 
-Both are computed on a 4 px screen grid with bandwidths in km, so they stay consistent across zoom levels.
+* **Event kernel**: smooths the events in the observation window (each counts 1, or magnitude/5).
+* **Anomaly-zone kernel**: smooths the detector's estimated region omega at the cursor time, weighted by each point's
+  anomaly measure (0..1).
 
-## Scrubbing time
-
-Wheel over the timeline strip or the top bar; Shift+wheel or a horizontal swipe over the map (plain wheel still
-zooms); drag or click the strip; arrow keys, Home/End, Space. One mouse notch moves 0.8 % of the loaded range,
-Shift = 5x, Alt = 0.2x.
+Colour is absolute: 1.0 = `saturation` unit-weight points stacked in one place, so intensity is comparable while
+scrolling. Kernels are evaluated in km on the sphere's local scale; if a bandwidth is finer than the screen resolves it is
+widened to 1.5 grid cells and the panel says so ("h≈ ... km"). An optional third layer shows the long-term normal rate as
+the expected number of events in the window, on the same colour scale as the events layer.

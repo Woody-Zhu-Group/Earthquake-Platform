@@ -1,4 +1,6 @@
 pandas>=2.0
 numpy>=1.24
+scipy>=1.10
 requests>=2.31
-matplotlib>=3.7
+tqdm>=4.65
+torch>=2.0        # CPU build is enough: pip install torch --index-url https://download.pytorch.org/whl/cpu

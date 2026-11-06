@@ -1,0 +1,40 @@
+{
+ "regions": [
+  {
+   "id": "california",
+   "name": "California",
+   "status": "ok",
+   "file": "cusum_california.json",
+   "monitor_start": "2024-12-31T00:00:00",
+   "monitor_end": "2025-12-31T00:00:00",
+   "peak_stat": 257049.59375
+  },
+  {
+   "id": "japan",
+   "name": "Japan and surroundings",
+   "status": "ok",
+   "file": "cusum_japan.json",
+   "monitor_start": "2023-12-31T00:00:00",
+   "monitor_end": "2024-12-30T00:00:00",
+   "peak_stat": 28918.304688
+  },
+  {
+   "id": "americas",
+   "name": "Central & South America",
+   "status": "ok",
+   "file": "cusum_americas.json",
+   "monitor_start": "2024-12-31T00:00:00",
+   "monitor_end": "2025-12-31T00:00:00",
+   "peak_stat": 116425.585938
+  },
+  {
+   "id": "indonesia",
+   "name": "Sumatra / Indonesia",
+   "status": "ok",
+   "file": "cusum_indonesia.json",
+   "monitor_start": "2024-12-31T00:00:00",
+   "monitor_end": "2025-12-31T00:00:00",
+   "peak_stat": 15343.558594
+  }
+ ]
+}

@@ -3,134 +3,93 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spatio-Temporal Earthquake Risk Portal</title>
+<title>Earthquake Change-Detection Portal</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="stylesheet" href="./src/styles.css" />
 </head>
 <body>
-
-<div id="sidebar">
-  <h2>Point Process Risk Portal</h2>
+<aside id="sidebar">
+  <h2>CUSUM Portal</h2>
+  <p class="hint">Earthquakes are shown worldwide. The score-matching CUSUM detector runs only on the outlined regions: <b>click a region box</b> to zoom in and see its anomaly zones, change point and statistic. <kbd>Esc</kbd> returns to the world view.</p>
 
   <div class="control-group">
-    <label class="section-title" for="data-mode-select">Data Fetching Mode</label>
-    <select id="data-mode-select">
-      <option value="historical" selected>Custom Historical API Query</option>
-      <option value="realtime">Real-time Summary Feeds (Recent)</option>
-    </select>
+    <label class="section-title">Detector results</label>
+    <input type="file" id="results-file" accept="application/json,.json" multiple>
+    <span class="hint">Load <code>cusum_&lt;region&gt;.json</code> files written by <code>python -m services.change_detection</code>. Files in <code>./data/</code> load automatically.</span>
   </div>
-
-  <div id="realtime-controls" class="control-group" style="display: none;">
-    <label class="section-title" for="feed-select">Summary Feed</label>
-    <select id="feed-select">
-      <option value="all_month">Past 30 Days (All Quakes)</option>
-      <option value="4.5_month">Past 30 Days (M4.5+)</option>
-      <option value="all_week">Past 7 Days (All Quakes)</option>
-      <option value="2.5_week">Past 7 Days (M2.5+)</option>
-    </select>
-  </div>
-
-  <div id="historical-controls" class="control-group">
-    <label class="section-title">Historical API Query Range</label>
-    <div class="grid-2col">
-      <div><span class="hint">Start Date</span><input type="date" id="hist-start" value="2024-01-01"></div>
-      <div><span class="hint">End Date</span><input type="date" id="hist-end" value="2026-01-01"></div>
-    </div>
-    <div style="margin-top: 2px;">
-      <span class="hint">Min Magnitude (M5.0+ recommended)</span>
-      <input type="number" id="hist-min-mag" value="5.0" step="0.5" min="0" max="10">
-    </div>
-    <button id="fetch-hist-btn" class="btn-primary">Query USGS Database</button>
-  </div>
-
   <div id="status-msg" class="status-msg" role="status" aria-live="polite"></div>
 
   <div class="control-group">
-    <div class="label-val"><span>Observation Window (T<sub>window</sub>)</span><span id="window-val">60 Days</span></div>
-    <input type="range" id="window-slider" min="1" max="180" value="60" step="1">
+    <label class="section-title">Time</label>
+    <div class="label-val"><span>Observation window</span><span id="window-val">30 days</span></div>
+    <input type="range" id="window-slider" min="1" max="180" value="30" step="1">
+    <label class="checkbox-group"><input type="checkbox" id="wheel-map"><span>Mouse wheel on maps scrolls time (Shift+wheel always does)</span></label>
+    <span class="hint">Scroll on a timeline strip, drag it, or use <kbd>←</kbd> <kbd>→</kbd> (<kbd>Shift</kbd> = 10&times;), <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>Space</kbd>.</span>
   </div>
 
   <div class="control-group">
-    <label class="section-title">Score-based CUSUM Detector</label>
-    <span class="hint">Score models (denoising score matching) are fitted on the baseline period; the detector then runs online over the whole catalog. Changing the first three controls refits (a few seconds on large catalogs).</span>
-
-    <div class="label-val"><span>Baseline (training) period</span><span id="baseline-val">40 %</span></div>
-    <input type="range" id="baseline-slider" min="10" max="80" value="40" step="5">
-
-    <div class="label-val"><span>Score neighbourhood radius</span><span id="score-radius-val">5.0&deg;</span></div>
-    <input type="range" id="score-radius-slider" min="1" max="20" value="5" step="0.5">
-
-    <div class="label-val"><span>Zone radius (change region)</span><span id="zone-radius-val">2.5&deg;</span></div>
-    <input type="range" id="zone-radius-slider" min="0.5" max="10" value="2.5" step="0.5">
-
-    <div class="label-val"><span>Threshold h</span><span id="h-val">2.50 &times; baseline max</span></div>
-    <input type="range" id="h-slider" min="0.5" max="5" value="2.5" step="0.05">
+    <label class="section-title">Events</label>
+    <div class="label-val"><span>Minimum magnitude (outside the selected region)</span><span id="min-mag-val">M ≥ 4.5</span></div>
+    <input type="range" id="min-mag" min="2.5" max="7" value="4.5" step="0.1">
+    <span class="hint">Worldwide events come from USGS at M4.5+. A selected region always shows its full detector catalogue.</span>
   </div>
 
   <div class="control-group">
-    <label class="section-title">Kernels</label>
-    <div class="label-val"><span>Event kernel bandwidth</span><span id="event-bw-val">80 km</span></div>
-    <input type="range" id="event-bw-slider" min="10" max="500" value="80" step="5">
-    <div class="label-val"><span>Event kernel weight</span></div>
-    <select id="event-weight-select">
-      <option value="count" selected>Count (each event = 1)</option>
-      <option value="energy">Magnitude (~log energy)</option>
-    </select>
-    <div class="label-val"><span>Anomaly-zone kernel bandwidth</span><span id="zone-bw-val">150 km</span></div>
-    <input type="range" id="zone-bw-slider" min="20" max="800" value="150" step="10">
+    <label class="section-title">Event kernel</label>
+    <select id="ev-kernel"></select>
+    <div class="label-val"><span>Bandwidth h</span><span id="ev-bw-val">50 km</span></div>
+    <input type="range" id="ev-bw" min="5" max="500" value="50" step="5">
+    <div class="label-val"><span>Saturation (events stacked = full colour)</span><span id="ev-sat-val">3</span></div>
+    <input type="range" id="ev-sat" min="1" max="20" value="3" step="1">
+    <select id="ev-weight"><option value="count">Weight: each event = 1</option><option value="magnitude">Weight: magnitude / 5</option></select>
   </div>
 
   <div class="control-group">
-    <label class="section-title">Map Layers &amp; Overlays</label>
-    <label class="checkbox-group"><input type="checkbox" id="toggle-quakes" checked><span>Individual Earthquake Markers</span></label>
-    <label class="checkbox-group"><input type="checkbox" id="toggle-event-heatmap" checked><span>Event Kernel Density</span></label>
-    <label class="checkbox-group"><input type="checkbox" id="toggle-cusum-heatmap" checked><span>Anomaly Zone (kernel-smoothed)</span></label>
-    <label class="checkbox-group"><input type="checkbox" id="toggle-anomalies" checked><span>Anomaly Zone Boundary (contour)</span></label>
-    <label class="checkbox-group"><input type="checkbox" id="toggle-tectonic" checked><span>Tectonic Plate Boundaries</span></label>
+    <label class="section-title">Anomaly-zone kernel</label>
+    <select id="zn-kernel"></select>
+    <div class="label-val"><span>Bandwidth h</span><span id="zn-bw-val">100 km</span></div>
+    <input type="range" id="zn-bw" min="5" max="800" value="100" step="5">
+    <div class="label-val"><span>Saturation</span><span id="zn-sat-val">2</span></div>
+    <input type="range" id="zn-sat" min="1" max="20" value="2" step="1">
   </div>
 
-  <div class="stats-grid">
-    <div class="stats-card"><div class="stats-title">Active Window Events</div><div class="stats-value" id="stat-active-events">0</div></div>
-    <div class="stats-card alert"><div class="stats-title">Anomaly Zones</div><div class="stats-value" id="stat-anomalies">0</div></div>
-    <div class="stats-card"><div class="stats-title">CUSUM S / h</div><div class="stats-value" id="stat-cusum">&ndash;</div></div>
-    <div class="stats-card"><div class="stats-title">Change point &tau;</div><div class="stats-value" id="stat-tau">&ndash;</div></div>
+  <div class="control-group">
+    <label class="section-title">Layers</label>
+    <label class="checkbox-group"><input type="checkbox" id="show-events" checked><span>Event density (kernel)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="show-zones" checked><span>CUSUM anomaly zones (kernel)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="show-baseline"><span>Long-term normal (expected events in window)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="show-markers" checked><span>Event markers (orange ring = anomalous)</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="show-zonepts"><span>Detector region points &omega;</span></label>
+    <label class="checkbox-group"><input type="checkbox" id="show-tectonic"><span>Tectonic plate boundaries</span></label>
   </div>
 
   <div class="legend">
-    <div style="font-weight: bold; color: #f1f5f9; margin-bottom: 2px;">Map Layer Legend</div>
-    <div style="font-size: .68rem; margin-top: 4px; color: #cbd5e1;">Event Kernel Density:</div>
-    <div class="legend-gradient-events"></div>
-    <div class="legend-labels"><span>Low density</span><span>High density</span></div>
-    <div style="font-size: .68rem; margin-top: 6px; color: #cbd5e1;">Anomaly Zone (smoothed measure):</div>
-    <div class="legend-gradient-cusum"></div>
-    <div class="legend-labels"><span>Weak</span><span>Strong</span></div>
-    <div class="legend-item" style="margin-top: 6px;"><span class="legend-color" style="background: rgba(220,38,38,.2); border: 2px dashed #dc2626;"></span><span>Zone boundary (30 % of smoothed peak)</span></div>
-    <div class="legend-item"><span class="legend-color" style="background: #0284c7;"></span><span>Earthquake Marker</span></div>
-    <div class="legend-item"><span class="legend-color" style="background: #d97706; height: 3px; border-radius: 0;"></span><span>Tectonic Boundary Line</span></div>
+    <div class="label-val"><span>Events</span><span class="legend-bar events"></span></div>
+    <div class="label-val"><span>Anomaly zones</span><span class="legend-bar zones"></span></div>
+    <div class="label-val"><span>Long-term normal</span><span class="legend-bar baseline"></span></div>
+    <div class="hint">Colour is absolute (not rescaled per frame), so brightness is comparable as you scroll. Kernels are widened automatically when a bandwidth is finer than the screen can show.</div>
   </div>
-</div>
+</aside>
 
-<div id="map-container">
+<main id="main">
   <div id="playbar">
-    <button id="play-pause-btn" class="playbar-btn"><span id="play-btn-icon">▶</span><span id="play-btn-text">Play</span></button>
-    <button id="step-prev-btn" class="playbar-btn secondary" title="Step Backward">⏮</button>
-    <button id="step-next-btn" class="playbar-btn secondary" title="Step Forward">⏭</button>
-    <div class="timeline-slider-container"><input type="range" id="time-slider" min="0" max="1000" value="1000"></div>
-    <select id="speed-select" class="speed-select">
-      <option value="0.5">0.5x Speed</option>
-      <option value="1" selected>1x Speed</option>
-      <option value="2">2x Speed</option>
-      <option value="5">5x Speed</option>
-      <option value="10">10x Speed</option>
+    <button id="play-btn" class="playbar-btn" aria-label="Play or pause">▶ Play</button>
+    <button id="step-prev" class="playbar-btn secondary" title="Step back">⏮</button>
+    <button id="step-next" class="playbar-btn secondary" title="Step forward">⏭</button>
+    <input type="range" id="time-slider" min="0" max="10000" value="10000" aria-label="Time">
+    <select id="speed" class="speed-select" aria-label="Playback speed">
+      <option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option>
     </select>
-    <div class="playbar-time-info" id="time-display-text"><span>Start: --</span><span>End: --</span></div>
+    <div id="time-display" class="playbar-time-info"></div>
   </div>
-  <div id="map"></div>
-  <div id="timeline" title="Scroll, drag or click to move through time">
-    <canvas id="timeline-canvas"></canvas>
-    <div id="timeline-hint">Scroll here to scrub time &middot; Shift+scroll over the map &middot; &larr; / &rarr; keys (Shift = faster) &middot; Space = play/pause</div>
+  <div id="map-wrap">
+    <div id="map"></div>
+    <button id="back-btn" class="playbar-btn secondary" style="display:none">&larr; World</button>
+    <div id="notice" class="notice" role="status"></div>
   </div>
-</div>
+  <div id="info" class="chips"></div>
+  <canvas id="strip" height="72" title="Scroll, drag or click to move through time"></canvas>
+</main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module" src="./src/main.js"></script>
